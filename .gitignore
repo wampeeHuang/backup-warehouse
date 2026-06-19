@@ -1,0 +1,6 @@
+store/
+_runtime/
+inbox/*
+!inbox/.gitkeep
+index.jsonl
+ATTENTION.md
