@@ -1,4 +1,4 @@
-param(
+﻿param(
     [Parameter(Mandatory=$true, Position=0)]
     [string]$Keyword
 )
@@ -7,18 +7,18 @@ $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $indexFile = Join-Path $root "index.jsonl"
 
 if (-not (Test-Path $indexFile)) {
-    Write-Host "index.jsonl 不存在，仓库尚未入库任何文件。"
+    Write-Host "index.jsonl not found. No files ingested yet."
     exit 0
 }
 
 $lines = Get-Content $indexFile -Encoding UTF8 | Where-Object { $_ -match $Keyword }
 
 if (-not $lines -or $lines.Count -eq 0) {
-    Write-Host "未找到匹配 '$Keyword' 的记录。"
+    Write-Host "No match for: $Keyword"
     exit 0
 }
 
-Write-Host ("匹配 {0} 条记录:" -f $lines.Count)
+Write-Host ("Matches: {0}" -f $lines.Count)
 Write-Host ("-" * 80)
 
 foreach ($line in $lines) {
@@ -37,4 +37,4 @@ foreach ($line in $lines) {
 }
 
 Write-Host ("-" * 80)
-Write-Host ("共 {0} 条" -f $lines.Count)
+Write-Host ("Total: {0}" -f $lines.Count)

@@ -1,4 +1,4 @@
-param(
+﻿param(
     [int]$SampleSize = 10
 )
 
@@ -17,108 +17,94 @@ $reportFile = Join-Path $runtimeDir "check-report.txt"
 $issues = @()
 
 Write-Host ("=" * 60)
-Write-Host ("仓库完整性检查: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
+Write-Host ("Warehouse check: {0}" -f (Get-Date -Format "yyyy-MM-dd HH:mm:ss"))
 Write-Host ("")
 
-# 1. Count index entries
 $indexHashes = @{}
 if (Test-Path $indexFile) {
-    Get-Content $indexFile -Encoding UTF8 | Where-Object { $_ -match '"hash":"(sha256:[a-f0-9]{64})"' } | ForEach-Object {
-        if ($_ -match '"hash":"(sha256:[a-f0-9]{64})"') {
+    Get-Content $indexFile -Encoding UTF8 | Where-Object { $_ -match '"hash":"sha256:([a-f0-9]{64})"' } | ForEach-Object {
+        if ($_ -match '"hash":"sha256:([a-f0-9]{64})"') {
             $indexHashes[$matches[1]] = $true
         }
     }
 }
 $indexCount = $indexHashes.Count
-Write-Host ("  index 记录数: {0}" -f $indexCount)
+Write-Host ("  index records: {0}" -f $indexCount)
 
-# 2. Count store files
 $storeFiles = @()
 if (Test-Path $storeDir) {
     $storeFiles = @(Get-ChildItem -Path $storeDir -File -Recurse -ErrorAction SilentlyContinue |
-        Where-Object { $_.Name -match '^sha256:[a-f0-9]{64}$' })
+        Where-Object { $_.Name -match '^[a-f0-9]{64}$' })
 }
 $storeCount = $storeFiles.Count
-Write-Host ("  store 文件数: {0}" -f $storeCount)
+Write-Host ("  store files:   {0}" -f $storeCount)
 
-# 3. Compare counts
 if ($indexCount -ne $storeCount) {
-    $msg = "数量不一致: index={0} store={1}" -f $indexCount, $storeCount
-    Write-Host ("  🚨 {0}" -f $msg)
+    $msg = "Count mismatch: index={0} store={1}" -f $indexCount, $storeCount
+    Write-Host ("  FAIL: {0}" -f $msg)
     $issues += $msg
 
-    # Find missing
     $storeHashes = @{}
     foreach ($f in $storeFiles) { $storeHashes[$f.Name] = $true }
     $inIndexNotStore = $indexHashes.Keys | Where-Object { -not $storeHashes.ContainsKey($_) }
     $inStoreNotIndex = $storeHashes.Keys | Where-Object { -not $indexHashes.ContainsKey($_) }
 
     if ($inIndexNotStore) {
-        Write-Host ("  index 有但 store 无: {0} 个" -f $inIndexNotStore.Count)
+        Write-Host ("  In index but not store: {0}" -f $inIndexNotStore.Count)
         $inIndexNotStore | Select-Object -First 5 | ForEach-Object { Write-Host ("    {0}" -f $_) }
     }
     if ($inStoreNotIndex) {
-        Write-Host ("  store 有但 index 无: {0} 个" -f $inStoreNotIndex.Count)
+        Write-Host ("  In store but not index: {0}" -f $inStoreNotIndex.Count)
         $inStoreNotIndex | Select-Object -First 5 | ForEach-Object { Write-Host ("    {0}" -f $_) }
     }
 } else {
-    Write-Host ("  数量一致 ✅")
+    Write-Host ("  Count OK")
 }
 
-# 4. Spot-check random files
+$passed = 0
+$failed = 0
 if ($storeFiles.Count -gt 0) {
     Write-Host ("")
-    Write-Host ("  随机抽查 {0} 个文件 SHA256..." -f [Math]::Min($SampleSize, $storeFiles.Count))
-    $sample = Get-Random -InputObject $storeFiles -Count ([Math]::Min($SampleSize, $storeFiles.Count))
+    $n = [Math]::Min($SampleSize, $storeFiles.Count)
+    Write-Host ("  Spot-checking {0} files..." -f $n)
+    $sample = Get-Random -InputObject $storeFiles -Count $n
 
-    $passed = 0
-    $failed = 0
     foreach ($f in $sample) {
-        $computed = "sha256:" + (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
+        $computed = (Get-FileHash -Path $f.FullName -Algorithm SHA256).Hash.ToLower()
         $expected = $f.Name
         if ($computed -eq $expected) {
             $passed++
         } else {
-            $msg = "SHA256 不匹配: {0}" -f $f.Name
-            Write-Host ("  🚨 {0}" -f $msg)
+            $msg = "SHA256 mismatch: {0}" -f $f.Name
+            Write-Host ("  FAIL: {0}" -f $msg)
             $issues += $msg
             $failed++
         }
     }
-    Write-Host ("  抽查: {0} 通过, {1} 失败" -f $passed, $failed)
+    Write-Host ("  Passed: {0}, Failed: {1}" -f $passed, $failed)
 }
 
-# 5. Report
+# Write report
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$report = @"
-[$timestamp] 仓库检查
-  index 记录: $indexCount
-  store 文件: $storeCount
-  抽查: $passed/$SampleSize 通过
-  问题: $($issues.Count)
-"@
+$report = "[$timestamp] index=$indexCount store=$storeCount spot_check=$passed/$SampleSize issues=$($issues.Count)"
 $report | Set-Content $reportFile -Encoding UTF8
 
+# Handle issues
 if ($issues.Count -gt 0) {
-    $attentionContent = @"
-# 🚨 仓库异常 — $timestamp
-
-$($issues -join "`n")
-
-详见 `_runtime/check-report.txt`
-"@
-    $attentionContent | Set-Content $attentionFile -Encoding UTF8
+    $lines = @("# Warehouse Issue - $timestamp", "", "Issues found: $($issues.Count)", "")
+    $lines += $issues | ForEach-Object { "- $_" }
+    $lines += "", "See _runtime/check-report.txt for details."
+    $lines -join "`n" | Set-Content $attentionFile -Encoding UTF8
     Write-Host ("")
     Write-Host ("=" * 60)
-    Write-Host ("🚨 发现问题 {0} 个，详见 ATTENTION.md" -f $issues.Count)
+    Write-Host ("ISSUES: {0} - see ATTENTION.md" -f $issues.Count)
     exit 1
 } else {
-    # Remove attention file if everything is clean
     if (Test-Path $attentionFile) {
         Remove-Item $attentionFile -Force
     }
     Write-Host ("")
     Write-Host ("=" * 60)
-    Write-Host ("✅ 仓库健康")
+    Write-Host ("OK - warehouse healthy")
     exit 0
 }
