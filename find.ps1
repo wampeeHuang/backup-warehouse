@@ -1,4 +1,4 @@
-﻿param(
+param(
     [Parameter(Mandatory=$true, Position=0)]
     [string]$Keyword
 )
@@ -24,12 +24,13 @@ Write-Host ("-" * 80)
 foreach ($line in $lines) {
     try {
         $obj = $line | ConvertFrom-Json
-        Write-Host ("{0} | {1} | {2:N0} B | {3} | {4}" -f
-            $obj.hash,
+        $dateFolder = $obj.mtime.Substring(0, 10)
+        Write-Host ("{0} | store/{1}/{2} | {3:N0} B | {4}" -f
+            $obj.mtime,
+            $dateFolder,
             $obj.path,
             $obj.size,
-            $obj.inbox_at,
-            $obj.ext)
+            $obj.hash)
     }
     catch {
         Write-Host $line
